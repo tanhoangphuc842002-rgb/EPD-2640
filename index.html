@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<!-- saved from url=(0029)https://www.jdeal.cn/msp.html -->
+<html lang="vi" class=""><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hộp công cụ màn hình mực điện tử</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body {
+      background-color: #f5f5f5;
+      padding: 20px;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      padding: 20px;
+    }
+    button {
+      padding: 6px 10px;
+      border: none;
+      border-radius: 4px;
+      background-color: #007aff;
+      color: #ffffff;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    input[type="number"], select {
+      padding: 4px 6px;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    input[type="file"] {
+      font-size: 14px;
+    }
+    canvas {
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      display: block;
+      margin: 10px 0;
+      background-color: #fff;
+      max-width: 100%;
+    }
+    #log {
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 6px;
+      min-height: 80px;
+      font-size: 12px;
+      color: #444;
+      margin-top: 10px;
+      overflow-y: auto;
+      max-height: 150px;
+    }
+    #edit-font {
+      position: absolute;
+      border: 1px solid #000;
+      border-radius: 4px;
+      padding: 4px;
+      font-size: 14px;
+    }
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 16px 0 16px;
+      color: #333;
+    }
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 20px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .control-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin: 12px 0;
+      font-size: 14px;
+    }
+    @media (max-width: 480px) {
+      body {
+        padding: 8px;
+      }
+      .container {
+        padding: 16px;
+      }
+
+      #btnConnect{
+        width: 100% !important;
+      }
+    }
+    #btnConnect{
+        flex: 1;
+        padding: 14px;
+        font-size: 16px;
+        border: none;
+        border-radius: 8px;
+        color: #ffffff;
+        background: #007AFF;
+        -webkit-tap-highlight-color: transparent;
+    }
+    input[type="number"]{
+        width: 52px;
+    }
+    .reload{
+        background-color: #ffffff;
+        border: 1px solid #d5d3d3;
+        color: #777777;
+        padding: 4px 10px;
+    }
+    #screensize,#dithering{
+        width: 125px;
+    }
+    .btnms button{
+        background-color: #34c759;
+    }
+    .timezone-note {
+      margin-top: 8px;
+      color: #666;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+    
+<script>
+const bwrPalette = [
+  [0, 0, 0, 255],
+  [255, 255, 255, 255],
+  [255, 0, 0, 255]
+];
+const bwPalette = [
+  [0, 0, 0, 255],
+  [255, 255, 255, 255],
+];
+
+function rotateCanvas(degrees) {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCanvas.width = canvas.width; tempCanvas.height = canvas.height;
+  tempCtx.drawImage(canvas, 0, 0);
+  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (Math.abs(degrees) === 90) {
+    canvas.width = tempCanvas.height; canvas.height = tempCanvas.width;
+  }
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(degrees * Math.PI / 180);
+  ctx.translate(-tempCanvas.width / 2, -tempCanvas.height / 2);
+  ctx.drawImage(tempCanvas, 0, 0);
+  ctx.restore();
+  convert_dithering();
+  console.log(`Đã xoay ${degrees} độ, kích thước mới ${canvas.width}x${canvas.height}`);
+}
+
+function dithering(ctx, width, height, thresholds, type) {
+  const bayerThresholdMap = [
+    [15,135,45,165],[195,75,225,105],[60,180,30,150],[240,120,210,90]
+  ];
+  const lumR = [], lumG = [], lumB = [];
+  for (let i=0; i<256; i++) {
+    lumR[i] = i*0.299; lumG[i] = i*0.587; lumB[i] = i*0.114;
+  }
+  const imageData = ctx.getImageData(0,0,width,height);
+  const imageDataLength = imageData.data.length;
+  for (let i=0; i<imageDataLength; i+=4) {
+    imageData.data[i] = Math.floor(lumR[imageData.data[i]] + lumG[imageData.data[i+1]] + lumB[imageData.data[i+2]]);
+  }
+  const w = imageData.width;
+  let newPixel, err;
+  for (let currentPixel=0; currentPixel<imageDataLength; currentPixel+=4) {
+    if (type ==="somegray") {
+      imageData.data[currentPixel] = imageData.data[currentPixel] > thresholds[2] ? 255 : (imageData.data[currentPixel] > thresholds[1] ? 170 : (imageData.data[currentPixel] > thresholds[0] ? 85 : 0));
+    } else if (type ==="none") {
+      imageData.data[currentPixel] = imageData.data[currentPixel] < thresholds[0] ? 0 : 255;
+    } else if (type ==="bayer") {
+      const x = currentPixel/4 % w; const y = Math.floor(currentPixel/4 / w);
+      const map = Math.floor((imageData.data[currentPixel] + bayerThresholdMap[x%4][y%4])/2);
+      imageData.data[currentPixel] = (map < thresholds[0]) ? 0 : 255;
+    } else if (type ==="floydsteinberg") {
+      newPixel = imageData.data[currentPixel] < 129 ? 0 : 255;
+      err = Math.floor((imageData.data[currentPixel] - newPixel)/16);
+      imageData.data[currentPixel] = newPixel;
+      imageData.data[currentPixel+4] += err*7;
+      imageData.data[currentPixel+4*w-4] += err*3;
+      imageData.data[currentPixel+4*w] += err*5;
+      imageData.data[currentPixel+4*w+4] += err*1;
+    } else {
+      newPixel = imageData.data[currentPixel] < thresholds[0] ? 0 : 255;
+      err = Math.floor((imageData.data[currentPixel] - newPixel)/8);
+      imageData.data[currentPixel] = newPixel;
+      imageData.data[currentPixel+4] += err;
+      imageData.data[currentPixel+8] += err;
+      imageData.data[currentPixel+4*w-4] += err;
+      imageData.data[currentPixel+4*w] += err;
+      imageData.data[currentPixel+4*w+4] += err;
+      imageData.data[currentPixel+8*w] += err;
+    }
+    imageData.data[currentPixel+1] = imageData.data[currentPixel+2] = imageData.data[currentPixel];
+  }
+  ctx.putImageData(imageData,0,0);
+}
+
+function canvas2bytes(canvas, type='bw') {
+  try {
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+    if (!imageData || !imageData.data || imageData.data.length === 0) {
+      console.warn("canvas2bytes: không có dữ liệu ảnh");
+      return [];
+    }
+    const arr = []; let buffer = [];
+    for (let y=0; y<canvas.height; y+=8) {
+      for (let x=0; x<canvas.width; x++) {
+        for (let a=0; a<8; a++) {
+          const i = (canvas.width*(y+a)+x)*4;
+          if (type !== 'red') {
+            buffer.push(imageData.data[i] === 0 && imageData.data[i+1] === 0 && imageData.data[i+2] === 0 ? 0 : 1);
+          } else {
+            buffer.push(imageData.data[i] > 0 && imageData.data[i+1] === 0 && imageData.data[i+2] === 0 ? 1 : 0);
+          }
+        }
+        arr.push(parseInt(buffer.join(''),2));
+        buffer = [];
+      }
+    }
+    return arr;
+  } catch (e) {
+    console.error("Lỗi canvas2bytes:", e);
+    return [];
+  }
+}
+
+function canvas2bytes2(canvas, type='bw') {
+  try {
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+    if (!imageData || !imageData.data || imageData.data.length === 0) {
+      console.warn("canvas2bytes2: không có dữ liệu ảnh");
+      return [];
+    }
+    const arr = []; let buffer = [];
+    for (let x=canvas.width-1; x>=0; x--) {
+      for (let y=0; y<canvas.height; y++) {
+        const index = (canvas.width*4*y)+x*4;
+        if (type !== 'red') {
+          buffer.push(imageData.data[index] === 0 && imageData.data[index+1] === 0 && imageData.data[index+2] === 0 ? 0 : 1);
+        } else {
+          buffer.push(imageData.data[index] > 0 && imageData.data[index+1] === 0 && imageData.data[index+2] === 0 ? 0 : 1);
+        }
+        if (buffer.length === 8) {
+          arr.push(parseInt(buffer.join(''),2));
+          buffer = [];
+        }
+      }
+    }
+    return arr;
+  } catch (e) {
+    console.error("Lỗi canvas2bytes2:", e);
+    return [];
+  }
+}
+const SSD1619_UPLOAD_W = 400;
+const SSD1619_UPLOAD_H = 300;
+const SSD1619_PAGE_H = 96;
+const SSD1619_ROW_BYTES = SSD1619_UPLOAD_W / 8;
+
+function getSsd1619UploadCanvas(canvas) {
+  if (canvas.width === SSD1619_UPLOAD_W && canvas.height === SSD1619_UPLOAD_H) return canvas;
+
+  const out = document.createElement('canvas');
+  out.width = SSD1619_UPLOAD_W;
+  out.height = SSD1619_UPLOAD_H;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, out.width, out.height);
+
+  if (canvas.width === SSD1619_UPLOAD_H && canvas.height === SSD1619_UPLOAD_W) {
+    ctx.save();
+    ctx.translate(SSD1619_UPLOAD_W, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(canvas, 0, 0);
+    ctx.restore();
+  } else {
+    ctx.drawImage(canvas, 0, 0, SSD1619_UPLOAD_W, SSD1619_UPLOAD_H);
+  }
+  return out;
+}
+
+function canvas2bytesSsd1619Page(canvas, type='bw', page=0) {
+  const src = getSsd1619UploadCanvas(canvas);
+  const ctx = src.getContext('2d');
+  const y0 = page * SSD1619_PAGE_H;
+  const h = Math.min(SSD1619_PAGE_H, SSD1619_UPLOAD_H - y0);
+  if (h <= 0) return [];
+  const imageData = ctx.getImageData(0, y0, SSD1619_UPLOAD_W, h);
+  const arr = [];
+
+  for (let y=0; y<h; y++) {
+    for (let xb=0; xb<SSD1619_ROW_BYTES; xb++) {
+      let byte = 0;
+      for (let bit=0; bit<8; bit++) {
+        const x = xb * 8 + bit;
+        const i = (y * SSD1619_UPLOAD_W + x) * 4;
+        const r = imageData.data[i], g = imageData.data[i+1], b = imageData.data[i+2];
+        let pixelOn;
+        if (type === 'red') {
+          pixelOn = (r > 128 && g < 80 && b < 80);
+        } else {
+          pixelOn = (r < 80 && g < 80 && b < 80);
+        }
+        if (!pixelOn) byte |= (0x80 >> bit);
+      }
+      arr.push(byte);
+    }
+  }
+  return arr;
+}
+function getColorDistance(rgba1, rgba2) {
+  const [r1,g1,b1] = rgba1; const [r2,g2,b2] = rgba2;
+  const rm = (r1+r2)/2; const r=r1-r2; const g=g1-g2; const b=b1-b2;
+  return Math.sqrt((2+rm/256)*r*r +4*g*g +(2+(255-rm)/256)*b*b);
+}
+function getNearColor(pixel, palette) {
+  let minDistance = 255*255*3+1; let paletteIndex=0;
+  for (let i=0; i<palette.length; i++) {
+    const d = getColorDistance(pixel, palette[i]);
+    if (d<minDistance) { minDistance=d; paletteIndex=i; }
+  }
+  return palette[paletteIndex];
+}
+function getNearColorV2(color, palette) {
+  let minDistSq = 255*255*3+1; let best=0;
+  for (let i=0; i<palette.length; i++) {
+    const r=color[0]-palette[i][0], g=color[1]-palette[i][1], b=color[2]-palette[i][2];
+    const distSq = r*r+g*g+b*b;
+    if (distSq<minDistSq) { minDistSq=distSq; best=i; }
+  }
+  return palette[best];
+}
+function updatePixel(imageData, index, color) {
+  imageData[index]=color[0]; imageData[index+1]=color[1]; imageData[index+2]=color[2]; imageData[index+3]=color[3];
+}
+function getColorErr(c1,c2,rate) {
+  return [Math.floor((c1[0]-c2[0])/rate), Math.floor((c1[1]-c2[1])/rate), Math.floor((c1[2]-c2[2])/rate)];
+}
+function updatePixelErr(imageData, index, err, rate) {
+  imageData[index] += err[0]*rate; imageData[index+1] += err[1]*rate; imageData[index+2] += err[2]*rate;
+}
+function ditheringCanvasByPalette(canvas, palette, type) {
+  palette = palette || bwrPalette;
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const w = imageData.width;
+  for (let i=0; i<imageData.data.length; i+=4) {
+    const newColor = getNearColorV2(imageData.data.slice(i,i+4), palette);
+    if (type === "bwr_floydsteinberg") {
+      const err = getColorErr(imageData.data.slice(i,i+4), newColor,16);
+      updatePixel(imageData.data,i,newColor);
+      updatePixelErr(imageData.data,i+4,err,7);
+      updatePixelErr(imageData.data,i+4*w-4,err,3);
+      updatePixelErr(imageData.data,i+4*w,err,5);
+      updatePixelErr(imageData.data,i+4*w+4,err,1);
+    } else {
+      const err = getColorErr(imageData.data.slice(i,i+4), newColor,8);
+      updatePixel(imageData.data,i,newColor);
+      updatePixelErr(imageData.data,i+4,err,1);
+      updatePixelErr(imageData.data,i+8,err,1);
+      updatePixelErr(imageData.data,i+4*w-4,err,1);
+      updatePixelErr(imageData.data,i+4*w,err,1);
+      updatePixelErr(imageData.data,i+4*w+4,err,1);
+      updatePixelErr(imageData.data,i+8*w,err,1);
+    }
+  }
+  ctx.putImageData(imageData,0,0);
+}
+function hexToBytes(hex) {
+  const bytes = [];
+  for (let c=0; c<hex.length; c+=2) bytes.push(parseInt(hex.substr(c,2),16));
+  return new Uint8Array(bytes);
+}
+function bytesToHex(data) {
+  return new Uint8Array(data).reduce((m,i)=>m+("0"+i.toString(16)).slice(-2),"");
+}
+function intToHex(intIn, bytes=4) {
+  return intIn.toString(16).padStart(bytes*2,'0');
+}
+</script>
+
+<script>
+let bleDevice, gattServer, epdService, epochCharacter;
+const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh';
+const VIETNAM_TIMEZONE_MINUTES = 7 * 60;
+
+function formatVietnamTime(date = new Date()) {
+  return new Intl.DateTimeFormat('vi-VN', {
+    timeZone: VIETNAM_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(date);
+}
+
+async function sleep(ms) { await new Promise(r=>setTimeout(r,ms)); }
+async function doConnect() {
+  try {
+    if (gattServer && gattServer.connected) {
+      if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+      disconnect(); return;
+    }
+    bleDevice = await navigator.bluetooth.requestDevice({
+      filters: [{namePrefix:'C26_'}],
+      optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
+    });
+    bleDevice.addEventListener('gattserverdisconnected', disconnect);
+    await connect();
+  } catch(e) { info("Lỗi Bluetooth: "+e.message); }
+}
+function etagFnEnable(flag) {
+  const ts = ['input','button','select'];
+  ts.forEach(t=>{
+    const eles = document.getElementById('etagFn').querySelectorAll(t);
+    eles.forEach(ele=>flag?ele.removeAttribute('disabled'):ele.setAttribute('disabled',true));
+  });
+}
+async function connect() {
+  try {
+    info("Đang kết nối tới "+bleDevice.name);
+    gattServer = await bleDevice.gatt.connect();
+    info('> Đã tìm thấy máy chủ GATT');
+    epdService = await gattServer.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
+    info('> Đã tìm thấy dịch vụ EPD');
+    epochCharacter = await epdService.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
+    document.getElementById("btnConnect").innerHTML = 'Ngắt kết nối';
+    etagFnEnable(true);
+  } catch(e) { info("Kết nối thất bại: "+e.message); }
+}
+function disconnect() {
+  bleDevice = gattServer = epdService = epochCharacter = null;
+  info('Đã ngắt kết nối.');
+  document.getElementById("btnConnect").innerHTML = 'Kết nối';
+  etagFnEnable(false);
+}
+async function writeVietnamTime(showLog=false) {
+  const epoch = Math.floor(Date.now() / 1000);
+  const epochBuffer = new ArrayBuffer(4);
+  new DataView(epochBuffer).setUint32(0, epoch, true);
+  await epochCharacter.writeValueWithResponse(epochBuffer);
+
+  const timezoneCharacter = await epdService.getCharacteristic('0000fff2-0000-1000-8000-00805f9b34fb');
+  const timezoneBuffer = new ArrayBuffer(4);
+  new DataView(timezoneBuffer).setInt32(0, VIETNAM_TIMEZONE_MINUTES, true);
+  await timezoneCharacter.writeValueWithResponse(timezoneBuffer);
+
+  if (showLog) {
+    info(`Da dong bo gio Viet Nam: ${formatVietnamTime()} (UTC+7, ${VIETNAM_TIMEZONE_MINUTES} phut)`);
+  }
+}
+async function doModeWithTime(mode) {
+  try {
+    await writeVietnamTime(false);
+    await doCmd('mode', mode);
+    info(`Da dong bo gio va chuyen sang che do ${mode==='clock'?'dong ho':'lich'}`);
+  } catch (e) {
+    info(`Chuyen che do that bai: ${e.message}`);
+  }
+}
+async function doSetTime() {
+  try {
+    await writeVietnamTime(false);
+
+    // Sau khi dong bo gio, ep thiet bi ve lai man lich.
+    // Lenh mode=calendar da duoc kiem chung hoat dong on tren firmware v12+.
+    await doCmd('mode', 'calendar');
+
+    info(`Đã đồng bộ giờ Việt Nam: ${formatVietnamTime()} (UTC+7, ${VIETNAM_TIMEZONE_MINUTES} phút)`);
+  } catch (e) {
+    info(`Đồng bộ thời gian thất bại: ${e.message}`);
+  }
+}
+async function doReadEtag() {
+  try {
+    const host = Date.now()/1000|0;
+    const chr1 = await epdService.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
+    const epoch = (await chr1.readValue()).getUint32(0,true);
+    const chr2 = await epdService.getCharacteristic('0000fff2-0000-1000-8000-00805f9b34fb');
+    const tz = (await chr2.readValue()).getInt32(0,true);
+    info(`# Máy tính: ${host}, chênh lệch: ${epoch-host} giây`);
+    info(`# Thiết bị: ${epoch}, múi giờ: ${tz} phút`);
+    const chr3 = await epdService.getCharacteristic('0000fff3-0000-1000-8000-00805f9b34fb');
+    const batt = (await chr3.readValue()).getUint16(0,true);
+    const chr4 = await epdService.getCharacteristic('0000fff4-0000-1000-8000-00805f9b34fb');
+    const temp = (await chr4.readValue()).getInt8(0,true);
+    info(`# Pin: ${batt} mV, nhiệt độ: ${temp}℃`);
+    const chr5 = await epdService.getCharacteristic('0000fff5-0000-1000-8000-00805f9b34fb');
+    const collab = (await chr5.readValue()).getInt8(0,true);
+    info(`# Hiệu chỉnh RTC: ${collab}`);
+  } catch (e) {
+    info(`Đọc trạng thái thất bại: ${e.message}`);
+  }
+}
+async function doRtcCollab() {
+  const col = prompt("Mức bù RTC (-5 đến 5):",0);
+  if (!col || col<-5 || col>5) return;
+  const chr = await epdService.getCharacteristic('0000fff5-0000-1000-8000-00805f9b34fb');
+  const buf = new Int8Array(1); buf[0] = parseInt(col);
+  await chr.writeValueWithResponse(buf);
+  info(`Đã ghi mức bù RTC: ${col}`);
+}
+async function doTest() {
+  const chr = await epdService.getCharacteristic('0000fffe-0000-1000-8000-00805f9b34fb');
+  const arr = new Int8Array(62).fill(0).map((_,i)=>i%8);
+  await chr.writeValueWithResponse(arr);
+  info(`> write ${arr.length} bytes`);
+}
+const epdCmd = {
+  EPD_CMD_CLR:1, EPD_CMD_MODE:2, EPD_CMD_BUF:3, EPD_CMD_BUF_CONT:4,
+  EPD_CMD_LUT:5, EPD_CMD_RST:6, EPD_CMD_BW:7, EPD_CMD_RED:8,
+  EPD_CMD_DP:9, EPD_CMD_FILL:10, EPD_CMD_BUF_PUT:11, EPD_CMD_BUF_GET:12,
+  EPD_CMD_SNV_WRITE:13, EPD_CMD_SNV_READ:14, EPD_CMD_SAVE_CFG:15
+};
+async function doCmd(cmd, data) {
+  if (!epdService || !gattServer || !gattServer.connected) {
+    info("Thiết bị chưa kết nối, không thể thực hiện lệnh");
+    throw new Error("Chưa kết nối");
+  }
+  const chr = await epdService.getCharacteristic('0000fffe-0000-1000-8000-00805f9b34fb');
+  switch(cmd) {
+    case 'read': return await chr.readValue();
+    case 'clr': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_CLR])); break;
+    case 'mode':
+      const modeVal = data==='image'?0x01:data==='calendar'?0x02:0x00;
+      await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_MODE, modeVal])); break;
+    case 'buf':
+      if (!data || !Array.isArray(data) || data.length===0) {
+        info("Lệnh buf không có dữ liệu hợp lệ, đã dừng tải lên");
+        throw new Error("Không có dữ liệu cho buf");
+      }
+      for (let i=0; i<data.length; i+=60) {
+        const chunk = [(i===0?epdCmd.EPD_CMD_BUF:epdCmd.EPD_CMD_BUF_CONT), ...data.slice(i,i+60)];
+        await chr.writeValueWithResponse(Uint8Array.from(chunk));
+        await sleep(10);
+      }
+      break;
+    case 'lut': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_LUT,...data])); break;
+    case 'rst': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_RST])); break;
+    case 'bw': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_BW, data || 0])); break;
+    case 'red': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_RED, data || 0])); break;
+    case 'fill': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_FILL, data==='red'?0x01:0x00])); break;
+    case 'dp':
+      const lut = data==='gray8'?2:data==='user'?0xff:0;
+      await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_DP, lut])); break;
+    case 'snv_read': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_SNV_READ,...data])); break;
+    case 'snv_write': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_SNV_WRITE, data])); break;
+    case 'buf_get': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_BUF_GET, data])); break;
+    case 'buf_put': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_BUF_PUT,...data])); break;
+    case 'save_cfg': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_SAVE_CFG])); break;
+    default: info(`Lệnh không xác định: ${cmd}`);
+  }
+  info(`> epdCmd.${cmd}`);
+}
+async function doCmdRead(snvId, size) {
+  const out = [];
+  await doCmd('snv_read', [snvId, size]);
+  for (let i=0; i<size; ) {
+    await doCmd('buf_get', i);
+    const data = new Uint8Array((await doCmd('read')).buffer);
+    if (data.byteLength===0) break;
+    i += data.byteLength-1;
+    out.push(...data.slice(1));
+  }
+  return out;
+}
+let ram_bw=[], ram_red=[];
+function doImageGrey() {
+  const canvas = document.getElementById('canvas');
+  ram_bw = canvas2grey8(canvas, 'bw');
+  ram_red = canvas2grey8(canvas, 'red');
+}
+function canvas2grey8(canvas, type='bw') {
+  try {
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+    const arr = [];
+    for (let y=0; y<canvas.height; y+=8) {
+      for (let x=0; x<canvas.width; x++) {
+        for (let a=0; a<8; a++) {
+          const i = (canvas.width*(y+a)+x)*4;
+          const R=imageData.data[i], G=imageData.data[i+1], B=imageData.data[i+2];
+          let grey=0;
+          if (R===255 && G!==255 && B!==255) {
+            grey = type==='bw'?0:((510+62-G-B)>>6);
+          } else {
+            grey = type==='bw'?((255+31-R)>>5):0;
+          }
+          arr.push(grey);
+        }
+      }
+    }
+    return arr;
+  } catch(e) { return []; }
+}
+let step=0;
+async function doUploadImageGray8() {
+  try {
+    await doCmd('clr'); await sleep(15000);
+    doImageGrey();
+    for (step=0; step<8; step++) {
+      await doCmd('rst'); await sleep(8000);
+      await doUploadImageRam8('bw');
+      await doUploadImageRam8('red');
+      await doCmd('dp', 'gray8'); await sleep(8000);
+    }
+    step=0; info('> Đã tải ảnh thang xám');
+  } catch(e) { info(`Tải ảnh thang xám thất bại: ${e.message}`); throw e; }
+}
+async function doUploadImageRam8(type='bw') {
+  const ram = type==='bw'?ram_bw:ram_red;
+  if (!ram || ram.length===0) { info(`Không có dữ liệu thang xám ${type}`); throw new Error("Không có dữ liệu thang xám"); }
+  const arr = []; let buffer=[];
+  for (const v of ram) {
+    buffer.push(v>step? (type==='bw'?0:1) : (type==='bw'?1:0));
+    if (buffer.length===8) {
+      arr.push(parseInt(buffer.join(''),2));
+      buffer=[];
+    }
+  }
+  info(`> write ${type} ram: ${arr.length} bytes`);
+  await doCmd('buf', arr);
+  await doCmd(type);
+}
+async function doUploadImageRam2(type='bw') {
+  const canvas = document.getElementById('canvas');
+  if (!canvas || canvas.width===0 || canvas.height===0) {
+    info("Khung vẽ chưa được khởi tạo");
+    throw new Error("Khung vẽ chưa sẵn sàng");
+  }
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  if (!imgData || imgData.data.length===0) {
+    info("Khung vẽ chưa có dữ liệu; hãy chọn hoặc vẽ ảnh trước");
+    throw new Error("Khung vẽ không có dữ liệu ảnh");
+  }
+  const radios = document.getElementsByName('byteConvertType');
+  let convertType='ssd';
+  for (const r of radios) { if (r.checked) { convertType=r.value; break; } }
+  const screenSize = document.getElementById('screensize')?.value || '';
+  if (screenSize === '400*300' || screenSize === '300*400') {
+    let total = 0;
+    for (let page=0; page<Math.ceil(SSD1619_UPLOAD_H / SSD1619_PAGE_H); page++) {
+      const pageArr = canvas2bytesSsd1619Page(canvas, type, page);
+      if (!pageArr || pageArr.length===0) continue;
+      total += pageArr.length;
+      info(`Đã tạo dữ liệu ${type} page ${page}: ${pageArr.length} byte`);
+      await doCmd('buf', pageArr);
+      await doCmd(type, page);
+      await sleep(1500);
+    }
+    if (total === 0) {
+      info("Không tạo được dữ liệu byte ảnh hợp lệ");
+      throw new Error("Không có dữ liệu byte được tạo");
+    }
+    return [];
+  }
+  let arr = convertType==='uc' ? canvas2bytes2(canvas,type) : canvas2bytes(canvas,type);
+  if (!arr || arr.length===0) {
+    info("Không tạo được dữ liệu byte ảnh hợp lệ");
+    throw new Error("Không có dữ liệu byte được tạo");
+  }
+  info(`Đã tạo dữ liệu ${type}: ${arr.length} byte`);
+  await doCmd('buf', arr);
+  await doCmd(type);
+  return arr;
+}
+async function doUploadImage(type='full') {
+  try {
+    info("Bắt đầu tải lên...");
+    if (!epdService || !gattServer || !gattServer.connected) {
+      info("Đang kết nối lại thiết bị...");
+      await connect();
+    }
+    if (type==='gray8') {
+      await doUploadImageGray8();
+    } else {
+      await doCmd('rst'); await sleep(2000);
+      await doUploadImageRam2('bw');
+      await doUploadImageRam2('red');
+      await doCmd('dp', 'full'); await sleep(15000);
+    }
+    info("Đã truyền xong ảnh");
+  } catch(e) {
+    console.error("Tải lên thất bại: ", e);
+    info(`Tải lên thất bại: ${e.message}`);
+    throw e;
+  }
+}
+function info(logTXT) {
+  const time = formatVietnamTime();
+  const log = document.getElementById("log");
+  log.innerHTML += `${time} : ${logTXT}<br>`;
+  console.log(`${time} : ${logTXT}`);
+  const lines = log.innerHTML.split('<br>');
+  if (lines.length>12) log.innerHTML = lines.slice(lines.length-12).join('<br>');
+}
+async function load_image() {
+  const file = document.getElementById('image_file').files[0];
+  if (!file) return;
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+  img.onload = () => {
+    URL.revokeObjectURL(img.src);
+    ctx.drawImage(img,0,0,img.width,img.height,0,0,canvas.width,canvas.height);
+    convert_dithering();
+  };
+}
+function clear_canvas() {
+  if (!confirm('Bạn có chắc muốn xóa khung vẽ?')) return;
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle='white'; ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+async function doFill(color) {
+  try {
+    await doCmd('rst'); await sleep(2000);
+    await doCmd('fill', color);
+    await doCmd('dp', 'full'); await sleep(15000);
+  } catch(e) { info(`Tô màu thất bại: ${e.message}`); }
+}
+async function doMyLut() {
+  const lut = [0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0b11000000|0x20,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0b01000000|0x03,0x00,0x00,0x00,0x01,0x00,0x01,0b01000000|0x03,0x00,0x00,0x00,0x01,0x00];
+  await doCmd('lut', lut);
+}
+</script>
+
+<script>
+async function update_image() {
+  const file = document.getElementById('image_file').files[0];
+  if (!file) return;
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+  img.onload = () => {
+    URL.revokeObjectURL(img.src);
+    const [targetW, targetH] = document.getElementById('screensize').value.split('*').map(Number);
+    canvas.width = targetW;
+    canvas.height = targetH;
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, targetW, targetH);
+    const isHorizontal = img.width > img.height;
+    if (isHorizontal) {
+      ctx.save();
+      ctx.translate(targetW, 0);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(img, 0, 0, targetH, targetW);
+      ctx.restore();
+    } else {
+      const scale = Math.min(targetW / img.width, targetH / img.height);
+      const w = img.width * scale;
+      const h = img.height * scale;
+      const x = (targetW - w) / 2;
+      const y = (targetH - h) / 2;
+      ctx.drawImage(img, x, y, w, h);
+    }
+    convert_dithering();
+  };
+  img.onerror = () => alert("Không thể tải ảnh");
+}
+function get_position(canvas, x,y) {
+  const r=canvas.getBoundingClientRect();
+  return {x:x-r.left*(canvas.width/r.width), y:y-r.top*(canvas.height/r.height)};
+}
+function horizon_clip_canvas() {
+  const c=document.getElementById('canvas'), ctx=c.getContext('2d');
+  const d=ctx.getImageData(0,0,c.width,c.height);
+  const n=ctx.createImageData(c.width,c.height);
+  for(let i=0; i<d.height; i++) {
+    for(let j=0; j<d.width; j++) {
+      const p=i*d.width*4 +j*4;
+      const q=i*d.width*4 +(d.width-1-j)*4;
+      n.data[p]=d.data[q]; n.data[p+1]=d.data[q+1]; n.data[p+2]=d.data[q+2]; n.data[p+3]=d.data[q+3];
+    }
+  }
+  ctx.putImageData(n,0,0);
+}
+function vertial_clip_canvas() {
+  const c=document.getElementById('canvas'), ctx=c.getContext('2d');
+  const d=ctx.getImageData(0,0,c.width,c.height);
+  const n=ctx.createImageData(c.width,c.height);
+  for(let i=0; i<d.height; i++) {
+    for(let j=0; j<d.width; j++) {
+      const p=i*d.width*4 +j*4;
+      const q=(d.height-1-i)*d.width*4 +j*4;
+      n.data[p]=d.data[q]; n.data[p+1]=d.data[q+1]; n.data[p+2]=d.data[q+2]; n.data[p+3]=d.data[q+3];
+    }
+  }
+  ctx.putImageData(n,0,0);
+}
+function convert_dithering() {
+  const c=document.getElementById('canvas'), ctx=c.getContext('2d');
+  const mode=document.getElementById('dithering').value;
+  const t=[
+    parseInt(document.getElementById('threshold0').value),
+    parseInt(document.getElementById('threshold1').value),
+    parseInt(document.getElementById('threshold2').value)
+  ];
+  if (mode.startsWith('bwr')) {
+    ditheringCanvasByPalette(c,bwrPalette,mode);
+  } else if (mode.startsWith('somegray')) {
+    dithering(ctx,c.width,c.height,t,mode);
+  } else {
+    dithering(ctx,c.width,c.height,t,mode);
+  }
+}
+</script>
+    
+<div class="container">
+    <div class="btn-group">
+      <button id="btnConnect" onclick="doConnect()">Kết nối</button>
+    </div>
+
+    <div id="etagFn">
+      <div class="section-title">😉 Điều khiển thiết bị</div>
+      <div class="btn-group">
+        <button onclick="doModeWithTime(&#39;clock&#39;)" disabled="true">Chế độ đồng hồ</button>
+        <button onclick="doModeWithTime(&#39;calendar&#39;)" disabled="true">Chế độ lịch</button>
+        <button onclick="doReadEtag()" disabled="true">Trạng thái thiết bị</button>
+        <button onclick="doSetTime()" disabled="true">Đồng bộ giờ Việt Nam</button>
+        <button onclick="doRtcCollab()" disabled="true">Hiệu chỉnh đồng hồ</button>
+        <button onclick="doCmd(&#39;save_cfg&#39;)" disabled="true">Lưu cài đặt</button>
+      </div>
+      <div class="timezone-note">Múi giờ đồng bộ: Việt Nam (Asia/Ho_Chi_Minh, UTC+7)</div>
+
+      <div class="section-title">😗 Chế độ hình ảnh</div>
+      <div class="btn-group btnms">
+        <button onclick="doCmd(&#39;mode&#39;,&#39;image&#39;)" disabled="true">Chuyển chế độ</button>
+        <button onclick="doCmd(&#39;clr&#39;)" disabled="true">Xóa màn hình</button>
+        <button onclick="doFill(&#39;black&#39;)" disabled="true">Tô đen toàn màn hình</button>
+        <button onclick="doFill(&#39;red&#39;)" disabled="true">Tô đỏ toàn màn hình</button>
+      </div>
+
+      <div id="canvas-box">
+          <div class="section-title">🎉 Tải ảnh lên</div>
+        <div class="control-row">
+          <input type="file" id="image_file" onchange="update_image()" accept="image/*" disabled="true">
+        </div>
+
+        <div class="control-row">
+          <span>Kiểu quét</span>
+          <input type="radio" name="byteConvertType" value="uc" id="uc" disabled="true">
+          <label for="uc">UC</label>
+          <input type="radio" name="byteConvertType" value="ssd" id="ssd" checked="" disabled="true">
+          <label for="ssd">SSD</label>
+        </div>
+
+        <div class="control-row">
+          <span>Phối điểm</span>
+          <select id="dithering" disabled="true">
+            <optgroup label="Đen trắng">
+              <option value="none">Nhị phân</option>
+              <option value="bayer">Bayer</option>
+              <option value="floydsteinberg">Floyd</option>
+              <option value="Atkinson">Atkinson</option>
+            </optgroup>
+            <optgroup label="Đen trắng đỏ">
+              <option value="bwr_floydsteinberg">BWR Floyd</option>
+              <option value="bwr_Atkinson" selected="">BWR Atkinson</option>
+            </optgroup>
+            <optgroup label="Thang xám">
+              <option value="somegray">Thang xám</option>
+            </optgroup>
+          </select>
+
+          <span>Kích thước</span>
+          <select id="screensize" disabled="true">
+            <option value="480*800">7.5(480×800)</option>
+            <option value="528*880">7.5(528×880)</option>
+            <option value="400*300" selected="">4.2(400×300)</option>
+            <option value="300*400">4.2(300×400, xoay)</option>
+            <option value="296*128">2.9(296×128)</option>
+            <option value="128*296">2.9(128×296)</option>
+            <option value="296*152">2.66(296×152)</option>
+            <option value="250*122">2.13(250×122)</option>
+          </select>
+        </div>
+
+        <div class="control-row">
+          <span>Ngưỡng</span>
+          <input type="number" id="threshold0" value="20" min="0" max="255" disabled="true">
+          <input type="number" id="threshold1" value="120" min="0" max="255" disabled="true">
+          <input type="number" id="threshold2" value="220" min="0" max="255" disabled="true">
+          <button onclick="update_image()" class="reload" disabled="true">Tải lại</button>
+        </div>
+
+        <div id="tool-box" class="control-row">
+          <span>Công cụ</span>
+          <select id="canvas-mode" disabled="true">
+            <option value="paint">Bút vẽ</option>
+            <option value="font">Văn bản</option>
+          </select>
+
+          <span>Cỡ</span>
+          <input type="number" id="paint-size" value="3" min="1" max="13" disabled="true">
+
+          <span>Màu</span>
+          <select id="paint-color" disabled="true">
+            <option value="red">Đỏ</option>
+            <option value="white">Trắng</option>
+            <option value="black" selected="">Đen</option>
+          </select>
+
+          <select id="font" style="display:none;" disabled="true">
+            <option value="sans-serif">Không chân</option>
+          </select>
+          <button id="update-text" style="display:none;" disabled="true">Chèn văn bản</button>
+
+          <div class="control-row">
+              <button onclick="clear_canvas()" disabled="true">Xóa khung vẽ</button>
+              <button onclick="horizon_clip_canvas()" disabled="true">Lật ngang</button>
+              <button onclick="vertial_clip_canvas()" disabled="true">Lật dọc</button>
+              <button onclick="rotateCanvas(90)" disabled="true">Xoay phải 90°</button>
+              <button onclick="rotateCanvas(-90)" disabled="true">Xoay trái 90°</button>
+          </div>
+          
+        </div>
+
+        <input id="edit-font" style="display:none; position:absolute; border:1px solid #000;" disabled="true">
+        <canvas id="canvas" width="250" height="122"></canvas>
+
+        <div class="btn-group">
+          <button onclick="doUploadImage(&#39;full&#39;)" style="background-color: #34c759; color: white; border: none;" disabled="true">Xác nhận tải lên</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">💻 Nhật ký hoạt động</div>
+    <div id="log"><font dir="auto" style="vertical-align: inherit;"><font dir="auto" style="vertical-align: inherit;"><font dir="auto" style="vertical-align: inherit;"><font dir="auto" style="vertical-align: inherit;">Công cụ web CC2640R2-ETAG</font></font></font></font><br><font dir="auto" style="vertical-align: inherit;"><font dir="auto" style="vertical-align: inherit;"> 21:37:46 : Kết nối với C26_8d0b90</font></font><br>21:37:48 : &gt; Found GATT server<br>21:38:27 : Disconnected.<br>21:38:27 : 连接失败 GATT Server is disconnected. Cannot retrieve services. (Re)connect first with `device.gatt.connect`.<br>21:38:44 : Connect to C26_8d0b90<br>21:38:44 : &gt; Found GATT server<br>21:39:24 : Disconnected.<br>21:39:24 : 连接失败 GATT Server is disconnected. Cannot retrieve services. (Re)connect first with `device.gatt.connect`.<br>21:40:10 : Connect to C26_8d0b90<br>21:40:12 : &gt; Found GATT server<br></div>
+  </div>
+
+<script>etagFnEnable(false);</script>
+
+<script>
+document.body.onload = () => {
+  document.querySelectorAll('button').forEach(btn => {
+    const oldClick = btn.getAttribute('onclick') || '';
+    if (oldClick.includes("doCmd('mode','clock')") || oldClick.includes("doCmd(&#39;mode&#39;,&#39;clock&#39;)")) {
+      btn.setAttribute('onclick', "doModeWithTime('clock')");
+    }
+    if (oldClick.includes("doCmd('mode','calendar')") || oldClick.includes("doCmd(&#39;mode&#39;,&#39;calendar&#39;)")) {
+      btn.setAttribute('onclick', "doModeWithTime('calendar')");
+    }
+  });
+  document.querySelectorAll('#goog-gt-tt, .skiptranslate').forEach(element => element.remove());
+  document.getElementById('log').innerHTML = `${formatVietnamTime()} : Hộp công cụ màn hình mực điện tử đã sẵn sàng.<br>`;
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle='white'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  let drawing=false, moving=false;
+  const modeSel = document.getElementById('canvas-mode');
+  const sizeSel = document.getElementById('paint-size');
+  const colorSel = document.getElementById('paint-color');
+  const editor = document.getElementById('edit-font');
+  const fontSel = document.getElementById('font');
+  const updateText = document.getElementById('update-text');
+
+  modeSel.onchange = () => {
+    if (modeSel.value==='font') {
+      editor.style.display='block'; fontSel.style.display='inline-block'; updateText.style.display='inline-block';
+    } else {
+      editor.style.display='none'; fontSel.style.display='none'; updateText.style.display='none';
+    }
+  };
+  updateText.onclick = () => {
+    if (!editor.value) { alert('Vui lòng nhập văn bản'); return; }
+    editor.style.display='none';
+    ctx.font = `${sizeSel.value*10}px ${fontSel.value}`;
+    ctx.fillStyle = colorSel.value;
+    const {x,y} = get_position(canvas, parseInt(editor.style.left), parseInt(editor.style.top)+sizeSel.value*10);
+    ctx.fillText(editor.value, x,y);
+  };
+  canvas.onmousedown = (e) => {
+    if (modeSel.value!=='paint') return;
+    drawing=true;
+    ctx.beginPath();
+    const {x,y}=get_position(canvas,e.clientX,e.clientY);
+    ctx.moveTo(x,y);
+  };
+  canvas.onmousemove = (e) => {
+    if (!drawing || modeSel.value!=='paint') return;
+    ctx.lineWidth=sizeSel.value; ctx.lineCap='round'; ctx.strokeStyle=colorSel.value;
+    const {x,y}=get_position(canvas,e.clientX,e.clientY);
+    ctx.lineTo(x,y); ctx.stroke();
+  };
+  canvas.onmouseup = () => drawing=false;
+  canvas.onmouseleave = () => drawing=false;
+  editor.onmousedown = () => moving=true;
+  editor.onmouseup = () => moving=false;
+  editor.onmousemove = (e) => {
+    if (!moving) return;
+    editor.style.left = `${e.clientX-20}px`;
+    editor.style.top = `${e.clientY-20}px`;
+    editor.style.fontSize = `${sizeSel.value*10}px`;
+    editor.style.color = colorSel.value;
+    editor.style.fontFamily = fontSel.value;
+  };
+  document.getElementById('screensize').onchange = update_image;
+};
+</script><div id="goog-gt-tt" class="VIpgJd-yAWNEb-L7lbkb skiptranslate" style="border-radius: 12px; margin: 0 0 0 -23px; padding: 0; font-family: &#39;Google Sans&#39;, Arial, sans-serif;" data-id=""><div id="goog-gt-vt" class="VIpgJd-yAWNEb-hvhgNd"><div class="VIpgJd-yAWNEb-hvhgNd-Ud7fr"><img src="./墨水屏工具箱_files/24px.svg" width="24" height="24" alt=""><div class=" VIpgJd-yAWNEb-hvhgNd-IuizWc-i3jM8c " dir="ltr">Văn bản gốc</div></div><div class="VIpgJd-yAWNEb-hvhgNd-k77Iif"><div id="goog-gt-original-text" class="VIpgJd-yAWNEb-nVMfcd-fmcmS VIpgJd-yAWNEb-hvhgNd-axAV1"></div></div><div class="VIpgJd-yAWNEb-hvhgNd-N7Eqid ltr"><div class="VIpgJd-yAWNEb-hvhgNd-N7Eqid-B7I4Od ltr" dir="ltr"><div class="VIpgJd-yAWNEb-hvhgNd-UTujCb">Đánh giá bản dịch này</div><div class="VIpgJd-yAWNEb-hvhgNd-eO9mKe">Ý kiến phản hồi của bạn sẽ được dùng để góp phần cải thiện Google Dịch</div></div><div class="VIpgJd-yAWNEb-hvhgNd-xgov5 ltr"><button id="goog-gt-thumbUpButton" type="button" class="VIpgJd-yAWNEb-hvhgNd-bgm6sf" title="Bản dịch tốt" aria-label="Bản dịch tốt" aria-pressed="false"><span id="goog-gt-thumbUpIcon"><svg width="24" height="24" viewBox="0 0 24 24" focusable="false" class="VIpgJd-yAWNEb-hvhgNd-THI6Vb NMm5M"><path d="M21 7h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 0S7.08 6.85 7 7H2v13h16c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V9c0-1.1-.9-2-2-2zM7 18H4V9h3v9zm14-7l-3 7H9V8l4.34-4.34L12 9h9v2z"></path></svg></span><span id="goog-gt-thumbUpIconFilled"><svg width="24" height="24" viewBox="0 0 24 24" focusable="false" class="VIpgJd-yAWNEb-hvhgNd-THI6Vb NMm5M"><path d="M21 7h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 0S7.08 6.85 7 7v13h11c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V9c0-1.1-.9-2-2-2zM5 7H1v13h4V7z"></path></svg></span></button><button id="goog-gt-thumbDownButton" type="button" class="VIpgJd-yAWNEb-hvhgNd-bgm6sf" title="Bản dịch kém" aria-label="Bản dịch kém" aria-pressed="false"><span id="goog-gt-thumbDownIcon"><svg width="24" height="24" viewBox="0 0 24 24" focusable="false" class="VIpgJd-yAWNEb-hvhgNd-THI6Vb NMm5M"><path d="M3 17h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 24s7.09-6.85 7.17-7h5V4H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2zM17 6h3v9h-3V6zM3 13l3-7h9v10l-4.34 4.34L12 15H3v-2z"></path></svg></span><span id="goog-gt-thumbDownIconFilled"><svg width="24" height="24" viewBox="0 0 24 24" focusable="false" class="VIpgJd-yAWNEb-hvhgNd-THI6Vb NMm5M"><path d="M3 17h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 24s7.09-6.85 7.17-7V4H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2zm16 0h4V4h-4v13z"></path></svg></span></button></div></div><div id="goog-gt-votingHiddenPane" class="VIpgJd-yAWNEb-hvhgNd-aXYTce"><form id="goog-gt-votingForm" action="https://translate.googleapis.com/translate_voting?client=te_lib" method="post" target="votingFrame" class="VIpgJd-yAWNEb-hvhgNd-aXYTce"><input type="text" name="sl" id="goog-gt-votingInputSrcLang"><input type="text" name="tl" id="goog-gt-votingInputTrgLang"><input type="text" name="query" id="goog-gt-votingInputSrcText"><input type="text" name="gtrans" id="goog-gt-votingInputTrgText"><input type="text" name="vote" id="goog-gt-votingInputVote"></form><iframe name="votingFrame" frameborder="0" src="./墨水屏工具箱_files/saved_resource.html"></iframe></div></div></div>
+
+
+</body></html>
