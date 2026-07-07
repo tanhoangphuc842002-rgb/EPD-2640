@@ -479,9 +479,8 @@ async function writeVietnamTime(showLog=false) {
 }
 async function doModeWithTime(mode) {
   try {
-    await writeVietnamTime(false);
-    await doCmd('mode', mode);
-    info(`Da dong bo gio va chuyen sang che do ${mode==='clock'?'dong ho':'lich'}`);
+    await doCmd('set_time_mode', mode);
+    info(`Da dong bo gio va chuyen sang che do ${mode==='clock'?'dong ho':'lich'} bang lenh atomic`);
   } catch (e) {
     info(`Chuyen che do that bai: ${e.message}`);
   }
@@ -538,7 +537,8 @@ const epdCmd = {
   EPD_CMD_CLR:1, EPD_CMD_MODE:2, EPD_CMD_BUF:3, EPD_CMD_BUF_CONT:4,
   EPD_CMD_LUT:5, EPD_CMD_RST:6, EPD_CMD_BW:7, EPD_CMD_RED:8,
   EPD_CMD_DP:9, EPD_CMD_FILL:10, EPD_CMD_BUF_PUT:11, EPD_CMD_BUF_GET:12,
-  EPD_CMD_SNV_WRITE:13, EPD_CMD_SNV_READ:14, EPD_CMD_SAVE_CFG:15
+  EPD_CMD_SNV_WRITE:13, EPD_CMD_SNV_READ:14, EPD_CMD_SAVE_CFG:15,
+  EPD_CMD_SET_TIME_MODE:16
 };
 async function doCmd(cmd, data) {
   if (!epdService || !gattServer || !gattServer.connected) {
@@ -552,6 +552,17 @@ async function doCmd(cmd, data) {
     case 'mode':
       const modeVal = data==='image'?0x01:data==='calendar'?0x02:0x00;
       await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_MODE, modeVal])); break;
+    case 'set_time_mode': {
+      const modeVal = data==='image'?0x01:data==='calendar'?0x02:0x00;
+      const payload = new ArrayBuffer(10);
+      const view = new DataView(payload);
+      view.setUint8(0, epdCmd.EPD_CMD_SET_TIME_MODE);
+      view.setUint32(1, Math.floor(Date.now() / 1000), true);
+      view.setInt32(5, VIETNAM_TIMEZONE_MINUTES, true);
+      view.setUint8(9, modeVal);
+      await chr.writeValueWithResponse(new Uint8Array(payload));
+      break;
+    }
     case 'buf':
       if (!data || !Array.isArray(data) || data.length===0) {
         info("Lệnh buf không có dữ liệu hợp lệ, đã dừng tải lên");
