@@ -426,15 +426,19 @@ async function sleep(ms) { await new Promise(r=>setTimeout(r,ms)); }
 async function doConnect() {
   try {
     if (gattServer && gattServer.connected) {
-      if (bleDevice && bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+      if (bleDevice) {
+        bleDevice.removeEventListener('gattserverdisconnected', disconnect);
+        if (bleDevice.gatt.connected) bleDevice.gatt.disconnect();
+      }
       disconnect(); return;
     }
     bleDevice = await navigator.bluetooth.requestDevice({
       filters: [{namePrefix:'C26_'}],
       optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
     });
-    bleDevice.addEventListener('gattserverdisconnected', disconnect);
+    bleDevice.removeEventListener('gattserverdisconnected', disconnect);
     await connect();
+    bleDevice.addEventListener('gattserverdisconnected', disconnect);
   } catch(e) { info("Lỗi Bluetooth: "+e.message); }
 }
 function etagFnEnable(flag) {
@@ -445,22 +449,59 @@ function etagFnEnable(flag) {
   });
 }
 async function connect() {
-  try {
-    info("Đang kết nối tới "+bleDevice.name);
-    gattServer = await bleDevice.gatt.connect();
-    info('> Đã tìm thấy máy chủ GATT');
-    epdService = await gattServer.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
-    info('> Đã tìm thấy dịch vụ EPD');
-    epochCharacter = await epdService.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
-    document.getElementById("btnConnect").innerHTML = 'Ngắt kết nối';
-    etagFnEnable(true);
-  } catch(e) { info("Kết nối thất bại: "+e.message); }
+  const device = bleDevice;
+  let lastError;
+
+  for (let attempt=1; attempt<=3; attempt++) {
+    try {
+      if (attempt > 1) {
+        info(`> Thử kết nối lại lần ${attempt}/3...`);
+        await sleep(1200 * attempt);
+      } else {
+        info("Đang kết nối tới "+device.name);
+      }
+
+      if (device.gatt.connected) {
+        device.gatt.disconnect();
+        await sleep(500);
+      }
+
+      const server = await device.gatt.connect();
+      info('> Đã tìm thấy máy chủ GATT');
+
+      /*
+       * V81 can need a little longer than V33 before service discovery is
+       * ready. A short pause plus retry avoids a stale GATT object.
+       */
+      await sleep(500);
+      const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
+      const characteristic = await service.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
+
+      bleDevice = device;
+      gattServer = server;
+      epdService = service;
+      epochCharacter = characteristic;
+      info('> Đã tìm thấy dịch vụ EPD');
+      document.getElementById("btnConnect").innerHTML = 'Ngắt kết nối';
+      etagFnEnable(true);
+      nextClockMode = 'clock';
+      return;
+    } catch(e) {
+      lastError = e;
+      gattServer = epdService = epochCharacter = null;
+      if (device.gatt.connected) device.gatt.disconnect();
+      if (attempt < 3) info(`> Lần ${attempt} chưa thành công, đang thử lại...`);
+    }
+  }
+
+  throw lastError;
 }
 function disconnect() {
   bleDevice = gattServer = epdService = epochCharacter = null;
   info('Đã ngắt kết nối.');
   document.getElementById("btnConnect").innerHTML = 'Kết nối';
   etagFnEnable(false);
+  nextClockMode = 'clock';
 }
 async function writeVietnamTime(showLog=false) {
   const epoch = Math.floor(Date.now() / 1000);
@@ -480,19 +521,30 @@ async function writeVietnamTime(showLog=false) {
 async function doModeWithTime(mode) {
   try {
     await doCmd('set_time_mode', mode);
-    info(`Da dong bo gio va chuyen sang che do ${mode==='clock'?'dong ho':'lich'} bang lenh atomic`);
+    const modeName = mode==='clock2' ? 'mat dong ho 2' : (mode==='clock' ? 'dong ho' : 'lich');
+    info(`Da dong bo gio va chuyen sang che do ${modeName} bang lenh atomic`);
+    return true;
   } catch (e) {
     info(`Chuyen che do that bai: ${e.message}`);
+    return false;
+  }
+}
+let nextClockMode = 'clock';
+async function doNextClockMode() {
+  const mode = nextClockMode;
+  if (await doModeWithTime(mode)) {
+    nextClockMode = mode === 'clock' ? 'clock2' : 'clock';
+  }
+}
+async function doCalendarMode() {
+  if (await doModeWithTime('calendar')) {
+    nextClockMode = 'clock';
   }
 }
 async function doSetTime() {
   try {
-    await writeVietnamTime(false);
-
-    // Sau khi dong bo gio, ep thiet bi ve lai man lich.
-    // Lenh mode=calendar da duoc kiem chung hoat dong on tren firmware v12+.
-    await doCmd('mode', 'calendar');
-
+    // Dong bo bang mot lenh duy nhat va giu nguyen che do dang hien thi.
+    await doCmd('set_time_mode', 'keep');
     info(`Đã đồng bộ giờ Việt Nam: ${formatVietnamTime()} (UTC+7, ${VIETNAM_TIMEZONE_MINUTES} phút)`);
   } catch (e) {
     info(`Đồng bộ thời gian thất bại: ${e.message}`);
@@ -550,10 +602,10 @@ async function doCmd(cmd, data) {
     case 'read': return await chr.readValue();
     case 'clr': await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_CLR])); break;
     case 'mode':
-      const modeVal = data==='image'?0x01:data==='calendar'?0x02:0x00;
+      const modeVal = data==='image'?0x01:data==='calendar'?0x02:data==='clock2'?0x03:0x00;
       await chr.writeValueWithResponse(Uint8Array.from([epdCmd.EPD_CMD_MODE, modeVal])); break;
     case 'set_time_mode': {
-      const modeVal = data==='image'?0x01:data==='calendar'?0x02:0x00;
+      const modeVal = data==='keep'?0xFF:data==='image'?0x01:data==='calendar'?0x02:data==='clock2'?0x03:0x00;
       const payload = new ArrayBuffer(10);
       const view = new DataView(payload);
       view.setUint8(0, epdCmd.EPD_CMD_SET_TIME_MODE);
@@ -711,6 +763,15 @@ async function doUploadImage(type='full') {
       info("Đang kết nối lại thiết bị...");
       await connect();
     }
+    /*
+     * Stop the clock/calendar periodic redraw before sending the paged image.
+     * V81 clears and sleeps the display while entering image mode, so wait for
+     * that operation to finish before RST starts the BW/RED page stream.
+     * V33 and newer do not need the long delay, but remain compatible with it.
+     */
+    await doCmd('mode', 'image');
+    info("Đang đợi firmware hoàn tất chuyển sang chế độ ảnh...");
+    await sleep(15000);
     if (type==='gray8') {
       await doUploadImageGray8();
     } else {
@@ -856,8 +917,8 @@ function convert_dithering() {
     <div id="etagFn">
       <div class="section-title">😉 Điều khiển thiết bị</div>
       <div class="btn-group">
-        <button onclick="doModeWithTime(&#39;clock&#39;)" disabled="true">Chế độ đồng hồ</button>
-        <button onclick="doModeWithTime(&#39;calendar&#39;)" disabled="true">Chế độ lịch</button>
+        <button onclick="doNextClockMode()" disabled="true">Chế độ đồng hồ</button>
+        <button onclick="doCalendarMode()" disabled="true">Chế độ lịch</button>
         <button onclick="doReadEtag()" disabled="true">Trạng thái thiết bị</button>
         <button onclick="doSetTime()" disabled="true">Đồng bộ giờ Việt Nam</button>
         <button onclick="doRtcCollab()" disabled="true">Hiệu chỉnh đồng hồ</button>
