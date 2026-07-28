@@ -484,7 +484,7 @@ async function connect() {
       info('> Đã tìm thấy dịch vụ EPD');
       document.getElementById("btnConnect").innerHTML = 'Ngắt kết nối';
       etagFnEnable(true);
-      nextClockMode = 'clock';
+      loadNextClockMode(device);
       return;
     } catch(e) {
       lastError = e;
@@ -501,7 +501,6 @@ function disconnect() {
   info('Đã ngắt kết nối.');
   document.getElementById("btnConnect").innerHTML = 'Kết nối';
   etagFnEnable(false);
-  nextClockMode = 'clock';
 }
 async function writeVietnamTime(showLog=false) {
   const epoch = Math.floor(Date.now() / 1000);
@@ -529,16 +528,45 @@ async function doModeWithTime(mode) {
     return false;
   }
 }
-let nextClockMode = 'clock';
+/*
+ * V33 selects Face 1/Face 2 explicitly.  Preserve the next face per BLE
+ * device so a GATT disconnect, reconnect, or page reload cannot reset the
+ * sequence before the second clock-button press.
+ *
+ * V33 boots in Face 1, therefore a device without saved state starts with
+ * Face 2 as the next requested face.
+ */
+let nextClockMode = 'clock2';
+let nextClockModeStorageKey = 'epd-next-clock-mode:default';
+function loadNextClockMode(device) {
+  nextClockModeStorageKey = 'epd-next-clock-mode:' +
+    (device?.id || device?.name || 'default');
+  try {
+    const saved = localStorage.getItem(nextClockModeStorageKey);
+    nextClockMode = (saved === 'clock' || saved === 'clock2') ?
+      saved : 'clock2';
+  } catch (_) {
+    if (nextClockMode !== 'clock' && nextClockMode !== 'clock2') {
+      nextClockMode = 'clock2';
+    }
+  }
+}
+function saveNextClockMode() {
+  try {
+    localStorage.setItem(nextClockModeStorageKey, nextClockMode);
+  } catch (_) {}
+}
 async function doNextClockMode() {
   const mode = nextClockMode;
   if (await doModeWithTime(mode)) {
     nextClockMode = mode === 'clock' ? 'clock2' : 'clock';
+    saveNextClockMode();
   }
 }
 async function doCalendarMode() {
   if (await doModeWithTime('calendar')) {
     nextClockMode = 'clock';
+    saveNextClockMode();
   }
 }
 async function doSetTime() {
