@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- saved from url=(0029)https://www.jdeal.cn/msp.html -->
+<!-- V23: V22 reliable queued-ACK upload + interactive crop/position image editor. -->
 <html lang="vi" class=""><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -137,6 +137,49 @@
       color: #666;
       font-size: 13px;
     }
+    .image-editor {
+      margin: 12px 0;
+      padding: 12px;
+      border: 1px solid #e6e6e6;
+      border-radius: 8px;
+      background: #fafafa;
+    }
+    .image-editor-title {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .image-editor input[type="range"] {
+      flex: 1 1 180px;
+      min-width: 140px;
+    }
+    .image-editor output {
+      min-width: 52px;
+      color: #555;
+      font-variant-numeric: tabular-nums;
+    }
+    .image-editor .move-pad {
+      display: grid;
+      grid-template-columns: repeat(3, 42px);
+      grid-template-rows: repeat(2, 36px);
+      gap: 5px;
+      align-items: center;
+    }
+    .image-editor .move-pad button {
+      padding: 6px;
+    }
+    .image-editor .hint {
+      color: #666;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    #canvas.image-pan-active {
+      cursor: grab;
+      touch-action: none;
+    }
+    #canvas.image-pan-active.dragging {
+      cursor: grabbing;
+    }
   </style>
 </head>
 <body>
@@ -152,7 +195,159 @@ const bwPalette = [
   [255, 255, 255, 255],
 ];
 
+const imageEditorState = {
+  source: null,
+  fitMode: 'contain',
+  zoom: 1,
+  rotation: 0,
+  offsetX: 0,
+  offsetY: 0,
+  brightness: 100,
+  contrast: 100,
+  saturation: 100,
+  flipX: 1,
+  flipY: 1,
+  dragging: false,
+  dragClientX: 0,
+  dragClientY: 0,
+  renderTimer: 0
+};
+
+function syncImageEditorControls() {
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  };
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+  setValue('rotationSlider', imageEditorState.rotation);
+  setValue('scaleSlider', Math.round(imageEditorState.zoom * 100));
+  setValue('brightnessSlider', imageEditorState.brightness);
+  setValue('contrastSlider', imageEditorState.contrast);
+  setValue('saturationSlider', imageEditorState.saturation);
+  setText('rotationValue', `${Math.round(imageEditorState.rotation)}°`);
+  setText('scaleValue', `${Math.round(imageEditorState.zoom * 100)}%`);
+  setText('brightnessValue', `${imageEditorState.brightness}%`);
+  setText('contrastValue', `${imageEditorState.contrast}%`);
+  setText('saturationValue', `${imageEditorState.saturation}%`);
+}
+
+function scheduleImageEditorRender() {
+  clearTimeout(imageEditorState.renderTimer);
+  imageEditorState.renderTimer = setTimeout(renderImageEditor, 45);
+}
+
+function renderImageEditor() {
+  const img = imageEditorState.source;
+  if (!img) return;
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const [targetW, targetH] = document.getElementById('screensize').value.split('*').map(Number);
+  if (canvas.width !== targetW || canvas.height !== targetH) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+  }
+  ctx.save();
+  ctx.filter = 'none';
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, targetW, targetH);
+
+  const radians = imageEditorState.rotation * Math.PI / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  const rotatedW = Math.max(1, img.width * cos + img.height * sin);
+  const rotatedH = Math.max(1, img.width * sin + img.height * cos);
+  let baseScale = 1;
+  if (imageEditorState.fitMode === 'contain') {
+    baseScale = Math.min(targetW / rotatedW, targetH / rotatedH);
+  } else if (imageEditorState.fitMode === 'cover') {
+    baseScale = Math.max(targetW / rotatedW, targetH / rotatedH);
+  }
+
+  ctx.translate(targetW / 2 + imageEditorState.offsetX,
+                targetH / 2 + imageEditorState.offsetY);
+  ctx.rotate(radians);
+  const totalScale = baseScale * imageEditorState.zoom;
+  if (imageEditorState.fitMode === 'stretch' && imageEditorState.rotation % 180 === 0) {
+    const swap = Math.abs(imageEditorState.rotation % 360) === 90 ||
+                 Math.abs(imageEditorState.rotation % 360) === 270;
+    const drawW = swap ? targetH : targetW;
+    const drawH = swap ? targetW : targetH;
+    ctx.scale(imageEditorState.flipX * imageEditorState.zoom,
+              imageEditorState.flipY * imageEditorState.zoom);
+    ctx.filter = `brightness(${imageEditorState.brightness}%) contrast(${imageEditorState.contrast}%) saturate(${imageEditorState.saturation}%)`;
+    ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+  } else {
+    ctx.scale(imageEditorState.flipX * totalScale,
+              imageEditorState.flipY * totalScale);
+    ctx.filter = `brightness(${imageEditorState.brightness}%) contrast(${imageEditorState.contrast}%) saturate(${imageEditorState.saturation}%)`;
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  }
+  ctx.restore();
+  convert_dithering();
+  syncImageEditorControls();
+}
+
+function setImageFit(mode) {
+  if (!imageEditorState.source) return;
+  imageEditorState.fitMode = mode;
+  imageEditorState.zoom = 1;
+  imageEditorState.offsetX = 0;
+  imageEditorState.offsetY = 0;
+  renderImageEditor();
+}
+
+function setImageActualSize() {
+  if (!imageEditorState.source) return;
+  imageEditorState.fitMode = 'actual';
+  imageEditorState.zoom = 1;
+  imageEditorState.offsetX = 0;
+  imageEditorState.offsetY = 0;
+  renderImageEditor();
+}
+
+function resetImageRotation() {
+  if (!imageEditorState.source) return;
+  imageEditorState.rotation = 0;
+  renderImageEditor();
+}
+
+function resetImageEditor() {
+  imageEditorState.fitMode = 'contain';
+  imageEditorState.zoom = 1;
+  imageEditorState.rotation = 0;
+  imageEditorState.offsetX = 0;
+  imageEditorState.offsetY = 0;
+  imageEditorState.brightness = 100;
+  imageEditorState.contrast = 100;
+  imageEditorState.saturation = 100;
+  imageEditorState.flipX = 1;
+  imageEditorState.flipY = 1;
+  syncImageEditorControls();
+  renderImageEditor();
+}
+
+function nudgeImage(dx, dy) {
+  if (!imageEditorState.source) return;
+  imageEditorState.offsetX += dx;
+  imageEditorState.offsetY += dy;
+  renderImageEditor();
+}
+
+function zoomImage(deltaPercent) {
+  if (!imageEditorState.source) return;
+  imageEditorState.zoom = Math.max(0.1, Math.min(5, imageEditorState.zoom + deltaPercent / 100));
+  renderImageEditor();
+}
+
 function rotateCanvas(degrees) {
+  if (imageEditorState.source) {
+    imageEditorState.rotation = (imageEditorState.rotation + degrees + 360) % 360;
+    renderImageEditor();
+    return;
+  }
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   const tempCanvas = document.createElement('canvas');
@@ -332,6 +527,58 @@ function canvas2bytesSsd1619Page(canvas, type='bw', page=0) {
         if (!pixelOn) byte |= (0x80 >> bit);
       }
       arr.push(byte);
+    }
+  }
+  return arr;
+}
+
+/* UC8159C 7.5-inch BWR: 640x384, packed 4-bit colour pixels.
+ * One byte contains two left-to-right pixels: black=0, red=4, white=3.
+ * A 12-line page is exactly 3840 bytes, matching the firmware buffer. */
+const UC8159_UPLOAD_W = 640;
+const UC8159_UPLOAD_H = 384;
+const UC8159_PAGE_H = 12;
+const UC8159_PAGE_COUNT = UC8159_UPLOAD_H / UC8159_PAGE_H;
+
+function getUc8159UploadCanvas(canvas) {
+  if (canvas.width === UC8159_UPLOAD_W && canvas.height === UC8159_UPLOAD_H) return canvas;
+  const out = document.createElement('canvas');
+  out.width = UC8159_UPLOAD_W;
+  out.height = UC8159_UPLOAD_H;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, out.width, out.height);
+  if (canvas.width === UC8159_UPLOAD_H && canvas.height === UC8159_UPLOAD_W) {
+    ctx.save();
+    ctx.translate(UC8159_UPLOAD_W, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(canvas, 0, 0);
+    ctx.restore();
+  } else {
+    ctx.drawImage(canvas, 0, 0, UC8159_UPLOAD_W, UC8159_UPLOAD_H);
+  }
+  return out;
+}
+
+function uc8159PixelNibble(r, g, b) {
+  if (r < 80 && g < 80 && b < 80) return 0x0;
+  if (r > 128 && g < 80 && b < 80) return 0x4;
+  return 0x3;
+}
+
+function canvas2bytesUc8159Page(canvas, page) {
+  const src = getUc8159UploadCanvas(canvas);
+  const ctx = src.getContext('2d');
+  const y0 = page * UC8159_PAGE_H;
+  const imageData = ctx.getImageData(0, y0, UC8159_UPLOAD_W, UC8159_PAGE_H);
+  const arr = [];
+  for (let y = 0; y < UC8159_PAGE_H; ++y) {
+    for (let x = 0; x < UC8159_UPLOAD_W; x += 2) {
+      const i0 = (y * UC8159_UPLOAD_W + x) * 4;
+      const i1 = i0 + 4;
+      const hi = uc8159PixelNibble(imageData.data[i0], imageData.data[i0 + 1], imageData.data[i0 + 2]);
+      const lo = uc8159PixelNibble(imageData.data[i1], imageData.data[i1 + 1], imageData.data[i1 + 2]);
+      arr.push((hi << 4) | lo);
     }
   }
   return arr;
@@ -517,9 +764,13 @@ async function writeVietnamTime(showLog=false) {
     info(`Da dong bo gio Viet Nam: ${formatVietnamTime()} (UTC+7, ${VIETNAM_TIMEZONE_MINUTES} phut)`);
   }
 }
+let currentDisplayMode = 'clock';
 async function doModeWithTime(mode) {
   try {
     await doCmd('set_time_mode', mode);
+    if (mode === 'clock' || mode === 'clock2' || mode === 'calendar') {
+      currentDisplayMode = mode;
+    }
     const modeName = mode==='clock2' ? 'mat dong ho 2' : (mode==='clock' ? 'dong ho' : 'lich');
     info(`Da dong bo gio va chuyen sang che do ${modeName} bang lenh atomic`);
     return true;
@@ -683,6 +934,60 @@ async function doCmdRead(snvId, size) {
   }
   return out;
 }
+
+async function readUc8159UploadAck() {
+  try {
+    const view = await doCmd('read');
+    const data = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    /* RXTX read format: byte 0 is buffer offset, followed by payload. */
+    if (data.length >= 3 && data[0] === 0 && data[1] === 0x75) {
+      return data[2];
+    }
+  } catch (e) {
+    /* The EPD task may still be busy; retry until the deadline. */
+  }
+  return -1;
+}
+
+async function waitUc8159UploadAck(expected, timeoutMs=10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const ack = await readUc8159UploadAck();
+    if (ack === expected) return;
+    await sleep(100);
+  }
+  /* Recover the previous GUI mode immediately if any upload stage times out.
+     The firmware watchdog is a second line of defence if BLE is lost. */
+  try {
+    if (gattServer && gattServer.connected) {
+      info('Dang khoi phuc dong ho/lich sau loi tai anh...');
+      await doCmd('set_time_mode', currentDisplayMode);
+      info('Da khoi phuc che do hien thi');
+    }
+  } catch (_) {}
+  throw new Error(`Thiết bị không xác nhận bước tải ảnh 0x${expected.toString(16)}`);
+}
+
+async function doEnterUc8159ImageMode() {
+  try {
+    const screenSize = document.getElementById('screensize')?.value || '';
+    if (screenSize !== '640*384') {
+      /* Preserve the original V36 behaviour for 4.2-inch/other devices. */
+      await doCmd('mode', 'image');
+      info('Đã gửi lệnh chuyển sang chế độ ảnh');
+      return;
+    }
+    await doCmd('mode', 'image');
+    await waitUc8159UploadAck(0xff, 60000);
+    info('Đang xóa trắng màn hình 7.5 inch...');
+    await doCmd('clr');
+    await waitUc8159UploadAck(0xfc, 60000);
+    info('Đã chuyển sang chế độ ảnh và xóa trắng màn hình');
+  } catch (e) {
+    info(`Chuyển chế độ ảnh thất bại: ${e.message}`);
+    throw e;
+  }
+}
 let ram_bw=[], ram_red=[];
 function doImageGrey() {
   const canvas = document.getElementById('canvas');
@@ -784,6 +1089,25 @@ async function doUploadImageRam2(type='bw') {
   await doCmd(type);
   return arr;
 }
+
+async function doUploadImageUc8159() {
+  const canvas = document.getElementById('canvas');
+  if (!canvas || canvas.width === 0 || canvas.height === 0) {
+    throw new Error('Khung vẽ chưa sẵn sàng');
+  }
+  for (let page = 0; page < UC8159_PAGE_COUNT; ++page) {
+    const data = canvas2bytesUc8159Page(canvas, page);
+    if (data.length !== 3840) {
+      throw new Error(`Trang ảnh ${page + 1} có kích thước sai (${data.length} byte)`);
+    }
+    info(`Đã tạo dữ liệu ảnh UC8159 trang ${page + 1}/${UC8159_PAGE_COUNT}: ${data.length} byte`);
+    await doCmd('buf', data);
+    await doCmd('bw', page);
+    /* Firmware confirms that SPI consumed this page before reusing buffer. */
+    await waitUc8159UploadAck(page + 1, 30000);
+  }
+}
+
 async function doUploadImage(type='full') {
   try {
     info("Bắt đầu tải lên...");
@@ -791,16 +1115,29 @@ async function doUploadImage(type='full') {
       info("Đang kết nối lại thiết bị...");
       await connect();
     }
+    const screenSize = document.getElementById('screensize')?.value || '';
+    const isUc8159_7in5 = screenSize === '640*384';
     /*
      * Stop the clock/calendar periodic redraw before sending the paged image.
      * V81 clears and sleeps the display while entering image mode, so wait for
      * that operation to finish before RST starts the BW/RED page stream.
      * V33 and newer do not need the long delay, but remain compatible with it.
-     */
+    */
     await doCmd('mode', 'image');
     info("Đang đợi firmware hoàn tất chuyển sang chế độ ảnh...");
-    await sleep(15000);
-    if (type==='gray8') {
+    if (isUc8159_7in5) {
+      await waitUc8159UploadAck(0xff, 60000);
+    } else {
+      await sleep(15000);
+    }
+    if (isUc8159_7in5) {
+      await doCmd('rst');
+      /* A cold UC8159/panel start can take well over ten seconds. */
+      await waitUc8159UploadAck(0, 60000);
+      await doUploadImageUc8159();
+      await doCmd('dp', 'full');
+      await waitUc8159UploadAck(0xfe, 90000);
+    } else if (type==='gray8') {
       await doUploadImageGray8();
     } else {
       await doCmd('rst'); await sleep(2000);
@@ -838,6 +1175,7 @@ async function load_image() {
 }
 function clear_canvas() {
   if (!confirm('Bạn có chắc muốn xóa khung vẽ?')) return;
+  imageEditorState.source = null;
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   ctx.fillStyle='white'; ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -865,35 +1203,24 @@ async function update_image() {
   img.src = URL.createObjectURL(file);
   img.onload = () => {
     URL.revokeObjectURL(img.src);
-    const [targetW, targetH] = document.getElementById('screensize').value.split('*').map(Number);
-    canvas.width = targetW;
-    canvas.height = targetH;
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, targetW, targetH);
-    const isHorizontal = img.width > img.height;
-    if (isHorizontal) {
-      ctx.save();
-      ctx.translate(targetW, 0);
-      ctx.rotate(Math.PI / 2);
-      ctx.drawImage(img, 0, 0, targetH, targetW);
-      ctx.restore();
-    } else {
-      const scale = Math.min(targetW / img.width, targetH / img.height);
-      const w = img.width * scale;
-      const h = img.height * scale;
-      const x = (targetW - w) / 2;
-      const y = (targetH - h) / 2;
-      ctx.drawImage(img, x, y, w, h);
-    }
-    convert_dithering();
+    imageEditorState.source = img;
+    resetImageEditor();
   };
   img.onerror = () => alert("Không thể tải ảnh");
 }
 function get_position(canvas, x,y) {
   const r=canvas.getBoundingClientRect();
-  return {x:x-r.left*(canvas.width/r.width), y:y-r.top*(canvas.height/r.height)};
+  return {
+    x:(x-r.left)*(canvas.width/Math.max(1,r.width)),
+    y:(y-r.top)*(canvas.height/Math.max(1,r.height))
+  };
 }
 function horizon_clip_canvas() {
+  if (imageEditorState.source) {
+    imageEditorState.flipX *= -1;
+    renderImageEditor();
+    return;
+  }
   const c=document.getElementById('canvas'), ctx=c.getContext('2d');
   const d=ctx.getImageData(0,0,c.width,c.height);
   const n=ctx.createImageData(c.width,c.height);
@@ -907,6 +1234,11 @@ function horizon_clip_canvas() {
   ctx.putImageData(n,0,0);
 }
 function vertial_clip_canvas() {
+  if (imageEditorState.source) {
+    imageEditorState.flipY *= -1;
+    renderImageEditor();
+    return;
+  }
   const c=document.getElementById('canvas'), ctx=c.getContext('2d');
   const d=ctx.getImageData(0,0,c.width,c.height);
   const n=ctx.createImageData(c.width,c.height);
@@ -956,7 +1288,7 @@ function convert_dithering() {
 
       <div class="section-title">😗 Chế độ hình ảnh</div>
       <div class="btn-group btnms">
-        <button onclick="doCmd(&#39;mode&#39;,&#39;image&#39;)" disabled="true">Chuyển chế độ</button>
+        <button onclick="doEnterUc8159ImageMode()" disabled="true">Chuyển chế độ</button>
         <button onclick="doCmd(&#39;clr&#39;)" disabled="true">Xóa màn hình</button>
         <button onclick="doFill(&#39;black&#39;)" disabled="true">Tô đen toàn màn hình</button>
         <button onclick="doFill(&#39;red&#39;)" disabled="true">Tô đỏ toàn màn hình</button>
@@ -996,9 +1328,10 @@ function convert_dithering() {
 
           <span>Kích thước</span>
           <select id="screensize" disabled="true">
+            <option value="640*384" selected="">7.5 UC8159 BWR (640×384)</option>
             <option value="480*800">7.5(480×800)</option>
             <option value="528*880">7.5(528×880)</option>
-            <option value="400*300" selected="">4.2(400×300)</option>
+            <option value="400*300">4.2(400×300)</option>
             <option value="300*400">4.2(300×400, xoay)</option>
             <option value="296*128">2.9(296×128)</option>
             <option value="128*296">2.9(128×296)</option>
@@ -1015,11 +1348,60 @@ function convert_dithering() {
           <button onclick="update_image()" class="reload" disabled="true">Tải lại</button>
         </div>
 
+        <div class="image-editor">
+          <div class="image-editor-title">Cắt và căn ảnh</div>
+          <div class="control-row">
+            <button onclick="setImageFit('stretch')" disabled="true">Kéo giãn vừa màn</button>
+            <button onclick="setImageFit('contain')" disabled="true">Vừa màn hình</button>
+            <button onclick="setImageFit('cover')" disabled="true">Lấp đầy &amp; cắt</button>
+            <button onclick="setImageActualSize()" disabled="true">Đặt 100%</button>
+            <button onclick="resetImageRotation()" disabled="true">Đặt lại xoay</button>
+            <button onclick="resetImageEditor()" class="reload" disabled="true">Đặt lại ảnh</button>
+          </div>
+          <div class="control-row">
+            <span>Xoay</span>
+            <input type="range" id="rotationSlider" min="0" max="360" step="1" value="0" disabled="true">
+            <output id="rotationValue">0°</output>
+          </div>
+          <div class="control-row">
+            <span>Tỷ lệ</span>
+            <input type="range" id="scaleSlider" min="10" max="500" step="1" value="100" disabled="true">
+            <output id="scaleValue">100%</output>
+          </div>
+          <div class="control-row">
+            <button onclick="zoomImage(10)" disabled="true">Phóng +</button>
+            <button onclick="zoomImage(-10)" disabled="true">Thu −</button>
+            <div class="move-pad" aria-label="Dịch chuyển ảnh">
+              <span></span><button onclick="nudgeImage(0,-10)" title="Lên" disabled="true">↑</button><span></span>
+              <button onclick="nudgeImage(-10,0)" title="Trái" disabled="true">←</button>
+              <button onclick="nudgeImage(0,10)" title="Xuống" disabled="true">↓</button>
+              <button onclick="nudgeImage(10,0)" title="Phải" disabled="true">→</button>
+            </div>
+          </div>
+          <div class="control-row">
+            <span>Độ sáng</span>
+            <input type="range" id="brightnessSlider" min="20" max="180" step="1" value="100" disabled="true">
+            <output id="brightnessValue">100%</output>
+          </div>
+          <div class="control-row">
+            <span>Tương phản</span>
+            <input type="range" id="contrastSlider" min="20" max="220" step="1" value="100" disabled="true">
+            <output id="contrastValue">100%</output>
+          </div>
+          <div class="control-row">
+            <span>Bão hòa</span>
+            <input type="range" id="saturationSlider" min="0" max="220" step="1" value="100" disabled="true">
+            <output id="saturationValue">100%</output>
+          </div>
+          <div class="hint">Chọn “Kéo/căn ảnh” trong Công cụ rồi kéo trực tiếp trên ảnh. Có thể dùng các nút mũi tên để chỉnh từng 10 px.</div>
+        </div>
+
         <div id="tool-box" class="control-row">
           <span>Công cụ</span>
           <select id="canvas-mode" disabled="true">
             <option value="paint">Bút vẽ</option>
             <option value="font">Văn bản</option>
+            <option value="image-position">Kéo/căn ảnh</option>
           </select>
 
           <span>Cỡ</span>
@@ -1087,6 +1469,7 @@ document.body.onload = () => {
   const updateText = document.getElementById('update-text');
 
   modeSel.onchange = () => {
+    canvas.classList.toggle('image-pan-active', modeSel.value === 'image-position');
     if (modeSel.value==='font') {
       editor.style.display='block'; fontSel.style.display='inline-block'; updateText.style.display='inline-block';
     } else {
@@ -1116,6 +1499,38 @@ document.body.onload = () => {
   };
   canvas.onmouseup = () => drawing=false;
   canvas.onmouseleave = () => drawing=false;
+  canvas.onpointerdown = (e) => {
+    if (modeSel.value !== 'image-position' || !imageEditorState.source) return;
+    e.preventDefault();
+    imageEditorState.dragging = true;
+    imageEditorState.dragClientX = e.clientX;
+    imageEditorState.dragClientY = e.clientY;
+    canvas.classList.add('dragging');
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+  };
+  canvas.onpointermove = (e) => {
+    if (!imageEditorState.dragging || modeSel.value !== 'image-position') return;
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    imageEditorState.offsetX += (e.clientX - imageEditorState.dragClientX) * scaleX;
+    imageEditorState.offsetY += (e.clientY - imageEditorState.dragClientY) * scaleY;
+    imageEditorState.dragClientX = e.clientX;
+    imageEditorState.dragClientY = e.clientY;
+    scheduleImageEditorRender();
+  };
+  const stopImageDrag = (e) => {
+    if (!imageEditorState.dragging) return;
+    imageEditorState.dragging = false;
+    canvas.classList.remove('dragging');
+    if (e && canvas.releasePointerCapture && canvas.hasPointerCapture && canvas.hasPointerCapture(e.pointerId)) {
+      canvas.releasePointerCapture(e.pointerId);
+    }
+    renderImageEditor();
+  };
+  canvas.onpointerup = stopImageDrag;
+  canvas.onpointercancel = stopImageDrag;
   editor.onmousedown = () => moving=true;
   editor.onmouseup = () => moving=false;
   editor.onmousemove = (e) => {
@@ -1126,7 +1541,34 @@ document.body.onload = () => {
     editor.style.color = colorSel.value;
     editor.style.fontFamily = fontSel.value;
   };
-  document.getElementById('screensize').onchange = update_image;
+  const bindEditorRange = (id, key, divisor=1) => {
+    const el = document.getElementById(id);
+    el.oninput = () => {
+      imageEditorState[key] = parseFloat(el.value) / divisor;
+      syncImageEditorControls();
+      scheduleImageEditorRender();
+    };
+    el.onchange = renderImageEditor;
+  };
+  bindEditorRange('rotationSlider', 'rotation');
+  bindEditorRange('scaleSlider', 'zoom', 100);
+  bindEditorRange('brightnessSlider', 'brightness');
+  bindEditorRange('contrastSlider', 'contrast');
+  bindEditorRange('saturationSlider', 'saturation');
+  document.getElementById('screensize').onchange = () => {
+    imageEditorState.offsetX = 0;
+    imageEditorState.offsetY = 0;
+    if (imageEditorState.source) renderImageEditor();
+  };
+  document.getElementById('dithering').onchange = () => {
+    if (imageEditorState.source) renderImageEditor();
+  };
+  ['threshold0','threshold1','threshold2'].forEach(id => {
+    document.getElementById(id).onchange = () => {
+      if (imageEditorState.source) renderImageEditor();
+    };
+  });
+  syncImageEditorControls();
 };
 </script><div id="goog-gt-tt" class="VIpgJd-yAWNEb-L7lbkb skiptranslate" style="border-radius: 12px; margin: 0 0 0 -23px; padding: 0; font-family: &#39;Google Sans&#39;, Arial, sans-serif;" data-id=""><div id="goog-gt-vt" class="VIpgJd-yAWNEb-hvhgNd"><div class="VIpgJd-yAWNEb-hvhgNd-Ud7fr"><img src="./墨水屏工具箱_files/24px.svg" width="24" height="24" alt=""><div class=" VIpgJd-yAWNEb-hvhgNd-IuizWc-i3jM8c " dir="ltr">Văn bản gốc</div></div><div class="VIpgJd-yAWNEb-hvhgNd-k77Iif"><div id="goog-gt-original-text" class="VIpgJd-yAWNEb-nVMfcd-fmcmS VIpgJd-yAWNEb-hvhgNd-axAV1"></div></div><div class="VIpgJd-yAWNEb-hvhgNd-N7Eqid ltr"><div class="VIpgJd-yAWNEb-hvhgNd-N7Eqid-B7I4Od ltr" dir="ltr"><div class="VIpgJd-yAWNEb-hvhgNd-UTujCb">Đánh giá bản dịch này</div><div class="VIpgJd-yAWNEb-hvhgNd-eO9mKe">Ý kiến phản hồi của bạn sẽ được dùng để góp phần cải thiện Google Dịch</div></div><div class="VIpgJd-yAWNEb-hvhgNd-xgov5 ltr"><button id="goog-gt-thumbUpButton" type="button" class="VIpgJd-yAWNEb-hvhgNd-bgm6sf" title="Bản dịch tốt" aria-label="Bản dịch tốt" aria-pressed="false"><span id="goog-gt-thumbUpIcon"><svg width="24" height="24" viewBox="0 0 24 24" focusable="false" class="VIpgJd-yAWNEb-hvhgNd-THI6Vb NMm5M"><path d="M21 7h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 0S7.08 6.85 7 7H2v13h16c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V9c0-1.1-.9-2-2-2zM7 18H4V9h3v9zm14-7l-3 7H9V8l4.34-4.34L12 9h9v2z"></path></svg></span><span id="goog-gt-thumbUpIconFilled"><svg width="24" height="24" viewBox="0 0 24 24" focusable="false" class="VIpgJd-yAWNEb-hvhgNd-THI6Vb NMm5M"><path d="M21 7h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 0S7.08 6.85 7 7v13h11c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73V9c0-1.1-.9-2-2-2zM5 7H1v13h4V7z"></path></svg></span></button><button id="goog-gt-thumbDownButton" type="button" class="VIpgJd-yAWNEb-hvhgNd-bgm6sf" title="Bản dịch kém" aria-label="Bản dịch kém" aria-pressed="false"><span id="goog-gt-thumbDownIcon"><svg width="24" height="24" viewBox="0 0 24 24" focusable="false" class="VIpgJd-yAWNEb-hvhgNd-THI6Vb NMm5M"><path d="M3 17h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 24s7.09-6.85 7.17-7h5V4H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2zM17 6h3v9h-3V6zM3 13l3-7h9v10l-4.34 4.34L12 15H3v-2z"></path></svg></span><span id="goog-gt-thumbDownIconFilled"><svg width="24" height="24" viewBox="0 0 24 24" focusable="false" class="VIpgJd-yAWNEb-hvhgNd-THI6Vb NMm5M"><path d="M3 17h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 24s7.09-6.85 7.17-7V4H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2zm16 0h4V4h-4v13z"></path></svg></span></button></div></div><div id="goog-gt-votingHiddenPane" class="VIpgJd-yAWNEb-hvhgNd-aXYTce"><form id="goog-gt-votingForm" action="https://translate.googleapis.com/translate_voting?client=te_lib" method="post" target="votingFrame" class="VIpgJd-yAWNEb-hvhgNd-aXYTce"><input type="text" name="sl" id="goog-gt-votingInputSrcLang"><input type="text" name="tl" id="goog-gt-votingInputTrgLang"><input type="text" name="query" id="goog-gt-votingInputSrcText"><input type="text" name="gtrans" id="goog-gt-votingInputTrgText"><input type="text" name="vote" id="goog-gt-votingInputVote"></form><iframe name="votingFrame" frameborder="0" src="./墨水屏工具箱_files/saved_resource.html"></iframe></div></div></div>
 
