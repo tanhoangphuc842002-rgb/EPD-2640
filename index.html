@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<!-- V26: one manual BLE attempt per tap; no automatic reconnect loop. -->
+<!-- V27: Bluefy service-cache discovery; one manual BLE attempt per tap. -->
 <html lang="vi" class=""><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hộp công cụ màn hình mực điện tử V26</title>
+  <title>Hộp công cụ màn hình mực điện tử V27</title>
   <style>
     * {
       box-sizing: border-box;
@@ -687,9 +687,18 @@ async function doConnect() {
       optionalServices: ['0000fff0-0000-1000-8000-00805f9b34fb']
     });
     bleDevice.removeEventListener('gattserverdisconnected', disconnect);
-    await connect();
+    /*
+     * Bluefy can disconnect while iOS is discovering services.  Register the
+     * listener before gatt.connect(), otherwise that early disconnect is lost
+     * and the page only reports an unhelpful `undefined` error.
+     */
     bleDevice.addEventListener('gattserverdisconnected', disconnect);
-  } catch(e) { info("Lỗi Bluetooth: "+e.message); }
+    await connect();
+  } catch(e) {
+    const errorName = e && e.name ? e.name : 'BluetoothError';
+    const errorMessage = e && e.message ? e.message : 'Bluefy không cung cấp nội dung lỗi';
+    info(`Lỗi Bluetooth: ${errorName}: ${errorMessage}`);
+  }
 }
 function etagFnEnable(flag) {
   const ts = ['input','button','select'];
@@ -711,8 +720,20 @@ async function connect() {
     const server = await device.gatt.connect();
     info('> Đã tìm thấy máy chủ GATT');
 
-    await sleep(500);
-    const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
+    /*
+     * On Bluefy/iOS, asking directly for FFF0 may wait until the 30-second
+     * GATT timeout when the service cache belongs to another firmware.  A
+     * single full discovery refreshes that cache and lets us select FFF0 from
+     * the services actually exposed by the connected device.
+     */
+    const epdServiceUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
+    const services = await server.getPrimaryServices();
+    info(`> Đã đọc ${services.length} dịch vụ GATT`);
+    services.forEach((item) => info(`> Dịch vụ: ${item.uuid}`));
+    const service = services.find((item) => item.uuid.toLowerCase() === epdServiceUuid);
+    if (!service) {
+      throw new Error('Thiết bị không công bố dịch vụ EPD FFF0');
+    }
     const characteristic = await service.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
 
     bleDevice = device;
@@ -725,7 +746,9 @@ async function connect() {
     loadNextClockMode(device);
   } catch(e) {
     gattServer = epdService = epochCharacter = null;
-    info('> Kết nối thất bại. Web không tự thử lại; hãy bấm Kết nối khi muốn thử lần nữa.');
+    const stillConnected = !!(device && device.gatt && device.gatt.connected);
+    info(`> Kết nối thất bại khi khám phá dịch vụ; trạng thái GATT: ${stillConnected ? 'vẫn kết nối' : 'đã ngắt'}.`);
+    info('> Web không tự thử lại; hãy bấm Kết nối khi muốn thử lần nữa.');
     throw e;
   }
 }
@@ -1442,7 +1465,7 @@ document.body.onload = () => {
     }
   });
   document.querySelectorAll('#goog-gt-tt, .skiptranslate').forEach(element => element.remove());
-  document.getElementById('log').innerHTML = `${formatVietnamTime()} : Web V26 (mỗi lần bấm chỉ kết nối một lần) đã sẵn sàng.<br>`;
+  document.getElementById('log').innerHTML = `${formatVietnamTime()} : Web V27 Bluefy (khám phá lại dịch vụ, không tự kết nối lại) đã sẵn sàng.<br>`;
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   ctx.fillStyle='white'; ctx.fillRect(0,0,canvas.width,canvas.height);
