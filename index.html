@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<!-- V25: universal V24 features with the proven V36 Bluefy/iOS BLE flow. -->
+<!-- V26: one manual BLE attempt per tap; no automatic reconnect loop. -->
 <html lang="vi" class=""><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hộp công cụ màn hình mực điện tử V25</title>
+  <title>Hộp công cụ màn hình mực điện tử V26</title>
   <style>
     * {
       box-sizing: border-box;
@@ -700,48 +700,34 @@ function etagFnEnable(flag) {
 }
 async function connect() {
   const device = bleDevice;
-  let lastError;
+  try {
+    info("Đang kết nối tới "+device.name);
 
-  for (let attempt=1; attempt<=3; attempt++) {
-    try {
-      if (attempt > 1) {
-        info(`> Thử kết nối lại lần ${attempt}/3...`);
-        await sleep(1200 * attempt);
-      } else {
-        info("Đang kết nối tới "+device.name);
-      }
-
-      if (device.gatt.connected) {
-        device.gatt.disconnect();
-        await sleep(500);
-      }
-
-      const server = await device.gatt.connect();
-      info('> Đã tìm thấy máy chủ GATT');
-
-      /* Keep this sequence identical to Web V36, which is proven on Bluefy. */
+    if (device.gatt.connected) {
+      device.gatt.disconnect();
       await sleep(500);
-      const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
-      const characteristic = await service.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
-
-      bleDevice = device;
-      gattServer = server;
-      epdService = service;
-      epochCharacter = characteristic;
-      info('> Đã tìm thấy dịch vụ EPD');
-      document.getElementById("btnConnect").innerHTML = 'Ngắt kết nối';
-      etagFnEnable(true);
-      loadNextClockMode(device);
-      return;
-    } catch(e) {
-      lastError = e;
-      gattServer = epdService = epochCharacter = null;
-      if (device.gatt.connected) device.gatt.disconnect();
-      if (attempt < 3) info(`> Lần ${attempt} chưa thành công, đang thử lại...`);
     }
-  }
 
-  throw lastError;
+    const server = await device.gatt.connect();
+    info('> Đã tìm thấy máy chủ GATT');
+
+    await sleep(500);
+    const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
+    const characteristic = await service.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
+
+    bleDevice = device;
+    gattServer = server;
+    epdService = service;
+    epochCharacter = characteristic;
+    info('> Đã tìm thấy dịch vụ EPD');
+    document.getElementById("btnConnect").innerHTML = 'Ngắt kết nối';
+    etagFnEnable(true);
+    loadNextClockMode(device);
+  } catch(e) {
+    gattServer = epdService = epochCharacter = null;
+    info('> Kết nối thất bại. Web không tự thử lại; hãy bấm Kết nối khi muốn thử lần nữa.');
+    throw e;
+  }
 }
 function disconnect() {
   bleDevice = gattServer = epdService = epochCharacter = null;
@@ -1456,7 +1442,7 @@ document.body.onload = () => {
     }
   });
   document.querySelectorAll('#goog-gt-tt, .skiptranslate').forEach(element => element.remove());
-  document.getElementById('log').innerHTML = `${formatVietnamTime()} : Web V25 (kết nối Bluefy theo V36) đã sẵn sàng.<br>`;
+  document.getElementById('log').innerHTML = `${formatVietnamTime()} : Web V26 (mỗi lần bấm chỉ kết nối một lần) đã sẵn sàng.<br>`;
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   ctx.fillStyle='white'; ctx.fillRect(0,0,canvas.width,canvas.height);
