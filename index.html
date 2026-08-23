@@ -1,9 +1,12 @@
 <!DOCTYPE html>
-<!-- V24: V23 + Bluefy/iOS delayed GATT discovery and visible control recovery. -->
+<!-- V25: universal V24 features with the proven V36 Bluefy/iOS BLE flow. -->
 <html lang="vi" class=""><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hộp công cụ màn hình mực điện tử V24</title>
+  <title>Hộp công cụ màn hình mực điện tử V25</title>
   <style>
     * {
       box-sizing: border-box;
@@ -670,18 +673,6 @@ function formatVietnamTime(date = new Date()) {
 }
 
 async function sleep(ms) { await new Promise(r=>setTimeout(r,ms)); }
-function promiseTimeout(promise, ms, message) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    promise.then(value => {
-      clearTimeout(timer);
-      resolve(value);
-    }, error => {
-      clearTimeout(timer);
-      reject(error);
-    });
-  });
-}
 async function doConnect() {
   try {
     if (gattServer && gattServer.connected) {
@@ -701,13 +692,9 @@ async function doConnect() {
   } catch(e) { info("Lỗi Bluetooth: "+e.message); }
 }
 function etagFnEnable(flag) {
-  const panel = document.getElementById('etagFn');
-  /* Bluefy occasionally keeps the lower panel hidden after its BLE chooser. */
-  panel.hidden = false;
-  panel.style.display = 'block';
   const ts = ['input','button','select'];
   ts.forEach(t=>{
-    const eles = panel.querySelectorAll(t);
+    const eles = document.getElementById('etagFn').querySelectorAll(t);
     eles.forEach(ele=>flag?ele.removeAttribute('disabled'):ele.setAttribute('disabled',true));
   });
 }
@@ -732,26 +719,10 @@ async function connect() {
       const server = await device.gatt.connect();
       info('> Đã tìm thấy máy chủ GATT');
 
-      /*
-       * Bluefy/iOS reports a connected GATT server before the CC2640R2
-       * service database is ready.  V86's low-power firmware exposes that
-       * timing more often than V41.  Wait longer on iOS and bound both
-       * discovery calls so the outer reconnect loop can recover cleanly.
-       */
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      await sleep(isIOS ? (1400 + attempt * 500) : 600);
-      info('> Đang tìm dịch vụ EPD...');
-      const service = await promiseTimeout(
-        server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb'),
-        isIOS ? 12000 : 8000,
-        'Quá thời gian tìm dịch vụ EPD'
-      );
-      const characteristic = await promiseTimeout(
-        service.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb'),
-        isIOS ? 10000 : 7000,
-        'Quá thời gian tìm đặc tính điều khiển EPD'
-      );
+      /* Keep this sequence identical to Web V36, which is proven on Bluefy. */
+      await sleep(500);
+      const service = await server.getPrimaryService('0000fff0-0000-1000-8000-00805f9b34fb');
+      const characteristic = await service.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
 
       bleDevice = device;
       gattServer = server;
@@ -760,7 +731,6 @@ async function connect() {
       info('> Đã tìm thấy dịch vụ EPD');
       document.getElementById("btnConnect").innerHTML = 'Ngắt kết nối';
       etagFnEnable(true);
-      try { document.getElementById('etagFn').scrollIntoView(); } catch (_) {}
       loadNextClockMode(device);
       return;
     } catch(e) {
@@ -1486,7 +1456,7 @@ document.body.onload = () => {
     }
   });
   document.querySelectorAll('#goog-gt-tt, .skiptranslate').forEach(element => element.remove());
-  document.getElementById('log').innerHTML = `${formatVietnamTime()} : Hộp công cụ màn hình mực điện tử đã sẵn sàng.<br>`;
+  document.getElementById('log').innerHTML = `${formatVietnamTime()} : Web V25 (kết nối Bluefy theo V36) đã sẵn sàng.<br>`;
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   ctx.fillStyle='white'; ctx.fillRect(0,0,canvas.width,canvas.height);
